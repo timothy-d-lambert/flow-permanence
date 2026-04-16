@@ -1,4 +1,5 @@
-setwd("~/Research/Seasonal fragmentation")
+library(here)
+here::i_am("idea-sketch.R")
 
 
 #### 1. Schematic of flow thresholds (wet/dry and passable/impassable)
