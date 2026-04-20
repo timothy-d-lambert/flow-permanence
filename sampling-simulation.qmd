@@ -1,0 +1,230 @@
+---
+title: "Sampling designs to efficiently map flow-dependent drying"
+author: Tim Lambert (as part of project with Karli Rogers et al.)
+format: html
+editor: visual
+---
+
+## Sampling design problem
+
+Let's consider a stream reach over which we want to map wet-dry boundaries[^1] and how they change with flow. Flow permanence surveys are performed by walking along the stream and recording locations at which the stream transitions from wet to dry or vice versa. Each such transect survey gives a snapshot of flow permanence for a particular flow level.
+
+[^1]: Shenandoah fieldwork maps three stream conditions—dry, isolated pools, and wet—which results in two boundaries. For simplicity, in this initial sketch I present only a generic wet-dry boundary, but all methods described can be generalized to include both transitions, from dry to isolated pools and from isolated pools to wet.
+
+```{r}
+#| code-fold: true
+#| code-summary: "Show code"
+#### Simulate flow-varying wet/dry map ####
+
+# Define function to generate a wiggly curve
+# Arguments:
+#   x: input values
+#   K: Number of sine components (increase for more wiggle)
+f <- function(x, K = 6) {
+  amps  <- rnorm(K, sd = 1 / (1:K)) # random amplitude (decreasing amplitudes = smoother)
+  phases <- runif(K, 0, 2 * pi) # random phases
+  
+  # Build the random function
+  f_raw <- rowSums(sapply(1:K, function(k)
+    amps[k] * sin(2 * pi * k * x + phases[k])))
+  
+  # Rescale:
+  target_min <- -0.1
+  target_max <-  0.8
+  f_scaled <- (f_raw - min(f_raw)) / (max(f_raw) - min(f_raw))  # [0,1]
+  f_scaled <- f_scaled * (target_max - target_min) + target_min # [-0.1,0.8]
+  f_trunc <- pmax(f_scaled, 0) # truncate below 0
+  return(f_trunc)
+}
+
+# Simulate a flow permanence curve
+set.seed(1)
+x <- seq(0, 1, length = 500) # Define x (river location)
+y <- f(x) # define relative flow values
+
+## Plot flow permanence curve
+
+# Plot flow permanence boundary and transects
+plot(x, y, 
+     type = "n",
+     yaxt = "n",
+     ylim = c(0, 1.1),
+     xlab = bquote("Along-stream position ("*x*")"),
+     ylab = bquote("Relative flow ("*y*")"))
+# Shade area below the line 
+polygon(c(x, rev(x)), 
+        c(rep(0, length(x)), rev(y)), 
+        col = "lightpink", border = NA) 
+# Shade area above the line 
+polygon(c(x, rev(x)), 
+        c(y, rep(1, length(x))), 
+        col = "lightblue", border = NA) 
+# Plot flow permanence boundary and transects
+points(x, y, type = "l", lwd = 2)
+abline(h = c(0,1), col = "red", lty = 2)
+abline(h = c(0.3), col = "blue", lty = 2)
+axis(side = 2, at = 0.3, label = bquote(y[i]))
+axis(side = 2, at = 0, label = bquote(0))
+axis(side = 2, at = 1, label = bquote(1))
+text(x = 0, 
+     y = c(0, 0.3, 1), 
+     col = c("red", "blue", "red"),
+     adj = c(0, -0.2),
+     labels = expression("Theoretical lower bound (no flow)", "Transect" ~ italic(i), "Theoretical upper bound (total flow)"))
+
+```
+
+This document outlines possible ways to select efficient sampling designs. Our objective is to select survey times to coincide with flows that are "informative," in the sense that after surveying $n$ times over the course of a field season we obtain an accurate flow permanence map.
+
+## Notation
+
+Key variables are defined in @tbl-notation-definitions.
+
+| Symbol | Definition |
+|------------------------------------|------------------------------------|
+| $x$ | Along-stream position |
+| $y$ | Relative flow, the cumulative probability that discharge is at or below the present discharge level |
+| $z(x,y)$ | Wetness state (0 = dry, 1 = wet) at position $x$, given flow $y$ |
+| $y_i$ | Relative flow during transect survey $i$ |
+| $y_{i+}$ | Relative flow of the nearest sampled transect above $y_i$ (i.e., with higher flow than during survey $i$) |
+| $y_{i-}$ | Relative flow of the nearest sampled transect below $y_i$ (i.e., with lower flow than during survey $i$) |
+
+: Notation definitions {#tbl-notation-definitions}
+
+Note that flow is measured on a relative basis, using $y(t) \in [0,1]$ to denote the cumulative probability that discharge is at or below the discharge that is observed at time $t$. Relative rather than absolute flow is used for two reasons: (1) Flow permanence is especially important in headwaters, where gage-based estimates of absolute flow are uncommon. Flow estimation using time lapse images (USGS Flow Photo Explorer) is well suited to monitoring flow in headwaters but generates only relative estimates of flow. (2) If flow were measured on an absolute scale, error in the flow permanence curve would be dominated by high-flow conditions. Using relative flow weights uncertainty in proportion to the amount of time spent under different flow permanence conditions, which seems reasonable when measuring cumulative biological impacts.[^2]
+
+[^2]: Other weighting schemes are possible. For example, a log transformation of absolute flow (\$\\ln{(y)}) would place greater emphasis on accurately measuring permanence conditions during low flow because these are the times when drying can present challenges (movement restriction, habitat reduction) for fish and other stream organisms.
+
+## Uncertainty envelops
+
+How do we define the accuracy of a flow-dependent permanence map[^3]? Let's focus on the uncertainty in the wet-dry boundary (in $x$-$y$ space) that occurs in the gap between two previously surveyed flow levels, $y_{i-}$ (lower flow) and $y_{i+}$ (higher flow). \@fig-plot shows the scenario. We know that the flow permanence curve must pass through the points at which the state transitions from wet to dry or vice versa. But beyond that, the curves could fall anywhere within the shaded regions.
+
+[^3]: Terminology?
+
+```{r}
+#| label: fig-plot
+#| fig-cap: "Flow permanence map (solid line). Given samples $i$ and $j$, ..."
+#| code-fold: true
+#| code-summary: "Show code"
+
+y.iplus <- 0.5
+y.iminus <- 0.2
+y.i <- 0.35
+# Plot flow permanence boundary and transects
+plot(x, y, 
+     type = "n",
+     yaxt = "n",
+     ylim = c(y.iminus - 0.1, y.iplus + 0.1),
+     xlab = bquote("Along-stream position ("*x*")"),
+     ylab = bquote("Relative flow ("*y*")"))
+# Shade area below the line 
+polygon(c(x, rev(x)), 
+        c(rep(0, length(x)), rev(y)), 
+        col = "lightpink", border = NA) 
+# Shade area above the line 
+polygon(c(x, rev(x)), 
+        c(y, rep(100, length(x))), 
+        col = "lightblue", border = NA) 
+# Plot flow permanence boundary 
+points(x, y, type = "l", lwd = 2)
+
+# Shade uncertainty envelop
+z.iplus <- y.iplus > y
+z.iminus <- y.iminus > y
+z.diff <- z.iplus - z.iminus
+# find contiguous runs of x where transects differ
+runs <- rle(z.diff)
+ends   <- cumsum(runs$lengths)
+starts <- ends - runs$lengths + 1
+one.runs <- which(runs$values == 1)
+# shade rectangles
+for (k in one.runs) {
+  i1 <- starts[k]
+  i2 <- ends[k]
+  polygon(
+    x = c(x[i1], x[i2], x[i2], x[i1]),
+    y = c(y.iminus, y.iminus, y.iplus, y.iplus),
+    col = rgb(0.5, 0.5, 0.5, 0.6),   # translucent blue
+    border = NA
+  )
+}
+
+# plot sampled transitions:
+transitions.iminus <- x[which(!z.iminus[-length(x)] == z.iminus[-1])]
+transitions.iplus <- x[which(!z.iplus[-length(x)] == z.iplus[-1])]
+
+# Plot transect data:
+segments(x0 = x[-length(x)], y0 = rep(y.iminus, length(x)-1),
+        x1 = x[-1], y1 = rep(y.iminus, length(x)-1),
+        col = ifelse(y < y.iminus, "blue", "red"),
+        lwd = 3)
+segments(x0 = x[-length(x)], y0 = rep(y.iplus, length(x)-1),
+        x1 = x[-1], y1 = rep(y.iplus, length(x)-1),
+        col = ifelse(y < y.iplus, "blue", "red"),
+        lwd = 3)
+axis(side = 2, at = y.iplus, label = bquote(y[.("i+")]))
+axis(side = 2, at = y.iminus, label = bquote(y[.("i-")]))
+
+# Plot sampled transition points:
+points(x = transitions.iminus,
+       y = rep(y.iminus, length(transitions.iminus)),
+       pch = 16, cex = 1.2)
+
+```
+
+The sum of all such shaded rectangles is given by
+
+$$Area = (y_{i+} - y_{i-}) \int_x \left[z(x,y_{i+}) - z(x,y_{i-}) \right] dx $$
+
+where the term inside the integral is 0 if surveys $i$ and $j$ had the same state $z$, and 1 if they did not.
+
+How much is the uncertainty envelop reduced by performing an additional transect survey? Let the new transect $i$ be taken under some intermediate flow level $y_i$, whose fractional distance between $y_j$ and $y_k$ is $p=\frac{y_i-y_j}{y_k-y_j}$. Then the expected fractional reduction[^4] in the area of the uncertainty envelop is $1−p^2(1−p)^2$.
+
+[^4]: Case 1: When the curve goes in one corner of the uncertainty envelop rectangle and out the opposite corner, this expectation makes the assumption that the weighted distribution of possible flow permanence curves is symmetric about a linear interpolant. Using some other interpolant (e.g., a spline) would introduce non-zero curvature expectations and alter the uncertainty reduction formula. Case 2: When the curve goes in and out on the same side (top or bottom) of the rectangle, then this expectation is... \[to be continued\].
+
+Putting these two pieces together, we obtain an expression for the expected uncertainty reduction (i.e., its utility $U$) of an additonal transect $i$:
+
+$$
+U(i) = \left(1 - p^2 (1-p)^2 \right) (y_{i+}-y_{i-}) \int_x \left[z(x,y_{i+}) - z(x,y_{i-}) \right] dx
+$$
+
+where $p$ is a function of the current flow, as defined earlier.
+
+The utility function can be used to guide sampling times. Given a set of completed surveys $j = (1, 2, ..., i-1)$, the utility function can be calculated for all possible relative flow values $y$ (Fig. X).
+
+One approach is an **adaptive design** that utilizes a **greedy sampling algorithm** . Under greedy sampling, each sample is taken at the maximal value indicates the flow level for which performing an additional transect results in the most improvement in the accuracy of the flow permanence map. This algorithm maximizes the information gained by every additional sample, but XXXXX (drawbacks).
+
+### Adaptive design (greedy sampling)
+
+Greedy sampling algorithm. Start with theoretical upper (wet) and lower (dry) bounds.
+
+### Non-adaptive design
+
+A priori optimal sampling design. Use information about how the wet-dry frequency distribution changes with flow (from previous years' surveys, for that stream type, etc.).
+
+## Caveats and next steps
+
+-   The greedy algorithm described above optimizes flow level on a sample-by-sample basis, but it lacks any sort of planning beyond the next sample. An alternative is to design *a priori* an optimal design with $m$ samples, based on prior knowledge. Previous surveys will give some indication of how the frequency of drying / isolated pools / wet changes with relative flow, although the tradeoff will be that this information is incomplete and outdated (if stream morphology has changed). Perhaps a good compromise would be to do a little of both, e.g., if you wanted to survey each stream a total of five times in 2026, you could use past information to guide an initial $m = 3$ design, then follow up with two additional "greedy" samples.
+
+-   We haven't considered the current and future availability of different flow levels. If a particular flow level is uncommon, it may be desirable to sample it even if it is not the planned next sample.
+
+-   This document assumes that surveys are completed in their entirety or not at all, but it could also possible to perform partial transects at a reduced cost/effort. This could be particularly beneficial if early surveys can identify some stream segments for which additional low- or high-flow surveys are not required (e.g., if a segment is wet even during low flow, then there is no need to survey it under higher flow conditions).
+
+-   I'm not sure that I'm using the best language to describe flow permanence and the various stream conditions. Suggested wording changes are welcome.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
