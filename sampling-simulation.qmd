@@ -7,9 +7,9 @@ editor: visual
 
 ## Sampling design problem
 
-Let's consider a stream reach over which we want to map wet-dry boundaries[^1] and how they change with flow. Flow permanence surveys are performed by walking along the stream and recording locations at which the stream transitions from wet to dry or vice versa. Each such transect survey gives a snapshot of flow permanence for a particular flow level.
+Let's consider a stream reach over which we want to map wet-dry boundaries[^1] and how they change with flow. Flow permanence surveys are performed by walking along the stream and recording locations at which the stream transitions from wet to dry or vice versa. Each such transect survey gives a snapshot (map) of wet/dry states for a particular flow level.
 
-[^1]: Shenandoah fieldwork maps three stream conditions—dry, isolated pools, and wet—which results in two boundaries. For simplicity, in this initial sketch I present only a generic wet-dry boundary, but all methods described can be generalized to include both transitions, from dry to isolated pools and from isolated pools to wet.
+[^1]: Shenandoah fieldwork maps three stream conditions—dry, isolated pools, and wet—which results in two boundaries. For simplicity, in this initial sketch I present only a generic wet-dry boundary, but all methods described can be generalized to include both transitions, from dry to isolated pools and from isolated pools to wet. (Note: It helps that in both of these cases, the state function is **monotonic** in $y$, i.e., as flow increases the state can shift from dry to isolated pools to wet, but never vice versa.)
 
 ```{r}
 #| code-fold: true
@@ -74,7 +74,7 @@ text(x = 0,
 
 ```
 
-This document outlines possible ways to select efficient sampling designs. Our objective is to select survey times to coincide with flows that are "informative," in the sense that after surveying $n$ times over the course of a field season we obtain an accurate flow permanence map.
+This document outlines methods for finding sampling designs that allow the flow permanence map to be estimated with as much accuracy as possible, given a fixed number of surveys. In particular, we focus on optimizing the flow levels at which those surveys are performed.
 
 ## Notation
 
@@ -91,19 +91,17 @@ Key variables are defined in @tbl-notation-definitions.
 
 : Notation definitions {#tbl-notation-definitions}
 
-Note that flow is measured on a relative basis, using $y(t) \in [0,1]$ to denote the cumulative probability that discharge is at or below the discharge that is observed at time $t$. Relative rather than absolute flow is used for two reasons: (1) Flow permanence is especially important in headwaters, where gage-based estimates of absolute flow are uncommon. Flow estimation using time lapse images (USGS Flow Photo Explorer) is well suited to monitoring flow in headwaters but generates only relative estimates of flow. (2) If flow were measured on an absolute scale, error in the flow permanence curve would be dominated by high-flow conditions. Using relative flow weights uncertainty in proportion to the amount of time spent under different flow permanence conditions, which seems reasonable when measuring cumulative biological impacts.[^2]
+Note that flow is measured on a relative basis: $y(t) \in [0,1]$ denotes the cumulative probability of discharge being below the value observed at time $t$. Relative rather than absolute flow is used for two reasons: (1) Flow permanence is especially important in headwaters, where gage-based estimates of absolute flow are uncommon. Flow estimation using time lapse images (USGS Flow Photo Explorer) is well suited to monitoring flow in headwaters but generates only relative estimates of flow. (2) If flow were measured on an absolute scale, error in the flow permanence curve would be dominated by high-flow conditions, when movement and available habitat are relatively unconstrained. To better measure cumulative biological impacts, it seems reasonable to weight uncertainty in proportion to the amount of time spent under different flow permanence conditions, and this is precisely the effect of using relative flow.[^2]
 
 [^2]: Other weighting schemes are possible. For example, a log transformation of absolute flow (\$\\ln{(y)}) would place greater emphasis on accurately measuring permanence conditions during low flow because these are the times when drying can present challenges (movement restriction, habitat reduction) for fish and other stream organisms.
 
 ## Uncertainty envelops
 
-How do we define the accuracy of a flow-dependent permanence map[^3]? Let's focus on the uncertainty in the wet-dry boundary (in $x$-$y$ space) that occurs in the gap between two previously surveyed flow levels, $y_{i-}$ (lower flow) and $y_{i+}$ (higher flow). \@fig-plot shows the scenario. We know that the flow permanence curve must pass through the points at which the state transitions from wet to dry or vice versa. But beyond that, the curves could fall anywhere within the shaded regions.
-
-[^3]: Terminology?
+How do we define the accuracy of a flow permanence map? Let's focus on the uncertainty in the wet-dry boundary (in $x$-$y$ space) that occurs in the gap between two previously surveyed flow levels, $y_{i-}$ (lower flow) and $y_{i+}$ (higher flow). @fig-uncertainty-envelop illustrates this scenario. We know that the flow permanence curve must pass upwards through the points at which the state transitions from wet to dry, and downwards through the transitions from dry to wet. Beyond that, the curves could fall anywhere within the shaded regions, which together constitute the uncertainty envelop.
 
 ```{r}
-#| label: fig-plot
-#| fig-cap: "Flow permanence map (solid line). Given samples $i$ and $j$, ..."
+#| label: fig-uncertainty-envelop
+#| fig-cap: "On a plot of relative flow vs. stream position, a simulated flow permanence curve (solid line) separates wet (light blue) and dry (light red) states. In order to map out this curve, surveys are performed. Two such transect surveys, $i+$ and $i-$, are indicated by the horizontal lines, with color indicating whether the stream at any given location is detected to be wet (blue) or dry (red). Based on data from these two sampled flow levels, we know the flow permanence curve travels through the transition points (black dots), but we do not know what path it takes between them. Uncertainty envelops that cover all possible routes for the flow-permanence curve are shaded in grey."
 #| code-fold: true
 #| code-summary: "Show code"
 
@@ -169,42 +167,49 @@ axis(side = 2, at = y.iminus, label = bquote(y[.("i-")]))
 points(x = transitions.iminus,
        y = rep(y.iminus, length(transitions.iminus)),
        pch = 16, cex = 1.2)
+points(x = transitions.iplus,
+       y = rep(y.iplus, length(transitions.iplus)),
+       pch = 16, cex = 1.2)
 
 ```
 
-The sum of all such shaded rectangles is given by
+The uncertainty cost associated with this uncertainty envelop (summed area of the shaded rectangles) is $$C(i-,i+) = (y_{i+} - y_{i-}) \int_x \left[z(x,y_{i+}) - z(x,y_{i-}) \right] dx $$
 
-$$Area = (y_{i+} - y_{i-}) \int_x \left[z(x,y_{i+}) - z(x,y_{i-}) \right] dx $$
+where the first term is the height and the second term the summed widths of the rectangular regions. The integrand ($z(x,y_{i+}) - z(x,y_{i-})$) is 0 if surveys $i$ and $j$ had the same state $z$, and 1 if they did not.
 
-where the term inside the integral is 0 if surveys $i$ and $j$ had the same state $z$, and 1 if they did not.
+Let us now obtain the total uncertainty associated with a set of surveys, by summing across all flow bands to cover the entire $x$-$y$ plane. Suppose we have a set of completed surveys as well as the theoretical upper (all wet when $y=1$) and lower (all dry when $y=0$) bounds, collectively referred to as the set $\mathbb{J} = (1, 2, ..., J)$, which are ordered without loss of generality from smallest to largest $y_j$. Then the total uncertainty cost is $$\mathbb{C}(\mathbb{J}) = \sum_{i=1}^{J-1} C(i,i+1) $$
 
-How much is the uncertainty envelop reduced by performing an additional transect survey? Let the new transect $i$ be taken under some intermediate flow level $y_i$, whose fractional distance between $y_j$ and $y_k$ is $p=\frac{y_i-y_j}{y_k-y_j}$. Then the expected fractional reduction[^4] in the area of the uncertainty envelop is $1−p^2(1−p)^2$.
-
-[^4]: Case 1: When the curve goes in one corner of the uncertainty envelop rectangle and out the opposite corner, this expectation makes the assumption that the weighted distribution of possible flow permanence curves is symmetric about a linear interpolant. Using some other interpolant (e.g., a spline) would introduce non-zero curvature expectations and alter the uncertainty reduction formula. Case 2: When the curve goes in and out on the same side (top or bottom) of the rectangle, then this expectation is... \[to be continued\].
-
-Putting these two pieces together, we obtain an expression for the expected uncertainty reduction (i.e., its utility $U$) of an additonal transect $i$:
-
-$$
-U(i) = \left(1 - p^2 (1-p)^2 \right) (y_{i+}-y_{i-}) \int_x \left[z(x,y_{i+}) - z(x,y_{i-}) \right] dx
-$$
-
-where $p$ is a function of the current flow, as defined earlier.
-
-The utility function can be used to guide sampling times. Given a set of completed surveys $j = (1, 2, ..., i-1)$, the utility function can be calculated for all possible relative flow values $y$ (Fig. X).
-
-One approach is an **adaptive design** that utilizes a **greedy sampling algorithm** . Under greedy sampling, each sample is taken at the maximal value indicates the flow level for which performing an additional transect results in the most improvement in the accuracy of the flow permanence map. This algorithm maximizes the information gained by every additional sample, but XXXXX (drawbacks).
+This total uncertainty cost function can be helpful when guiding the design of sampling times, using either adaptive or non-adaptive methods.
 
 ### Adaptive design (greedy sampling)
 
-Greedy sampling algorithm. Start with theoretical upper (wet) and lower (dry) bounds.
+An **adaptive design** utilizes a **greedy sampling algorithm** that identifies the best flow level at which to perform the next survey.
+
+How much is the uncertainty envelop reduced by performing an additional transect survey? Let the new transect $i$ be taken at some intermediate flow level $y_i$. Then with a few assumptions,[^3] we find that the expected residual uncertainty, expressed as a fraction of the original uncertainty, is $p^2 + (1−p)^2$, where $p=\frac{y_i-y_{i-}}{y_{i+}-y_{i-}}$ is the fractional distance of $y_i$ between $y_{i-}$ and $y_{i+}$.
+
+[^3]: Lacking additional information, we assume that the weighted distribution of possible flow permanence curves is symmetric about a linear interpolant. Assuming some other form for the interpolant (e.g., a spline) would introduce non-zero curvature expectations and alter the formula for expected residual uncertainty. Note that this intuition is primarily valid for the situation when the curve goes in one corner of the uncertainty envelop rectangle and out the opposite corner (case 1). The case where the curve goes in and out on the same side (top or bottom) of the rectangle may require some modifications.
+
+Putting these two pieces together, we obtain an expression for the expected residual uncertainty (still focusing on the band of relative flows between $y_{i-}$ and $y_{i+}$) after performing an additional transect $i$:
+
+$$ C(i|i+,i-) = \left(p^2 + (1-p)^2 \right) (y_{i+}-y_{i-}) \int_x \left[z(x,y_{i+}) - z(x,y_{i-}) \right] dx $$
+
+where each survey $k = i$, $i+$, or $i-$ is associated both a flow value $y_j$ and the transect data $z(x,y_j)$. Note that, as defined earlier, $p$ is a function of these $y_j$'s.
+
+Thus we can identify the best flow level for one additional survey $i$ by minimizing the cost function $C(i|\mathbb{J})$ over all possible relative flow values $y_i \in [0,1]$.
+
+In practice, one can accomplish this by finding the two flow-adjacent surveys between which there is the most uncertainty, and targeting the relative flow value that is mid-way between them.
 
 ### Non-adaptive design
+
+The greedy algorithm described above optimizes flow level on a sample-by-sample basis, but it lacks any sort of planning beyond the next sample. An alternative is to design *a priori* an optimal design with $m$ samples, based on prior knowledge.
+
+Previous surveys will give some indication of how the frequency of drying / isolated pools / wet changes with relative flow, although the tradeoff will be that this information is incomplete and outdated (if stream morphology has changed).
 
 A priori optimal sampling design. Use information about how the wet-dry frequency distribution changes with flow (from previous years' surveys, for that stream type, etc.).
 
 ## Caveats and next steps
 
--   The greedy algorithm described above optimizes flow level on a sample-by-sample basis, but it lacks any sort of planning beyond the next sample. An alternative is to design *a priori* an optimal design with $m$ samples, based on prior knowledge. Previous surveys will give some indication of how the frequency of drying / isolated pools / wet changes with relative flow, although the tradeoff will be that this information is incomplete and outdated (if stream morphology has changed). Perhaps a good compromise would be to do a little of both, e.g., if you wanted to survey each stream a total of five times in 2026, you could use past information to guide an initial $m = 3$ design, then follow up with two additional "greedy" samples.
+-   There are advantages and limitations of both adaptive and non-adaptive sampling designs. One could also compromise by doing a little of both, e.g., if you wanted to survey each stream a total of five times in 2026, you could use past information to guide an initial $m = 3$ design, then follow up with two additional "greedy" samples to sample the biggest regions of uncertainty.
 
 -   We haven't considered the current and future availability of different flow levels. If a particular flow level is uncommon, it may be desirable to sample it even if it is not the planned next sample.
 
